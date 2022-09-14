@@ -28,6 +28,9 @@ USERS = [
 def filecache(func):
     @wraps(func)
     def wrapper(users, filename, refresh=False):
+        """
+        If the filename already exists, load it; if not, proceed with the wrapped function.
+        """
         if not refresh:
             try:
                 with open(os.path.join('static', filename), 'rb') as f:
@@ -45,6 +48,15 @@ def filecache(func):
 
 @filecache
 def get_tweets(users, filename, refresh):
+    """
+    Given a list of Twitter handles, return an iterable of (tweet, user)
+
+    Requirements
+    ============
+    users : iterable
+    filename : str
+    refresh: bool
+    """
     for u in users:
         results = api.user_timeline(screen_name=u)
         for r in results:
@@ -54,7 +66,12 @@ def get_tweets(users, filename, refresh):
 class TopicModelPipeline(object):
     def __init__(self, data, filename, word_vectors=None):
         """
-        Data expects a list of tuples, where a tuple is (tweet, author)
+        data is a list of tuples, where a tuple is (tweet, author)
+
+        Example
+        =======
+        ['I am feeling good', 'jack',
+         'buying twitter for 54.20 #blessed', 'elonmusk']
         """
         self.tweets = [i[0] for i in data]
         self.author = [i[1] for i in data]
@@ -66,6 +83,22 @@ class TopicModelPipeline(object):
             self.kv = gensim.downloader.load(word_vectors)
     
     def clean_text(self, tweets):
+        """
+        Given a list of tweets, perform the following cleaning steps:
+        - remove @ mentions
+        - remove URLs
+        - remove 'RT' from retweets
+        - lower-case everything
+        - tokenize on space, returning a list of lists
+
+        e.g. ['I feel good',
+              'I am buying Twitter']
+        becomes:
+            [
+                ['I', 'feel', 'good],
+                ['I', 'am', 'buying', 'Twitter'],
+            ]
+        """
         replacements = [
             (r'@(\w+)', ''),
             (r'http(.+)\s?', ''),
@@ -77,7 +110,9 @@ class TopicModelPipeline(object):
             yield tweet.lower().split(' ')
     
     def train_model(self):
-        # print(list(self.clean_text()))
+        """
+        Train a gensim word2vec model based on input tweets
+        """
         model = Word2Vec(sentences=list(self.clean_text(self.tweets)),
                          min_count=2)
         model.save(os.path.join('static', self.filename + '.model'))
@@ -85,6 +120,9 @@ class TopicModelPipeline(object):
         self.kv = model.wv
     
     def vectorize_users(self):
+        """
+        Return a list of vectors for the list of users provided
+        """
         self.user_vectors = {}
         for user, grp in groupby(self.data, itemgetter(1)):
             user_tweets = []
@@ -109,6 +147,9 @@ class TopicModelPipeline(object):
             yield other_user, distance.euclidean(self.user_vectors[user], ouv)
     
     def find_most_similar_users(self, user):
+        """
+        Given an input user, find the most similar users from the input data based on Euclidean distance
+        """
         users = self._calculate_user_similarity(user)
         yield sorted(users, key=itemgetter(1))
 
